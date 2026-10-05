@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title> PPTChat Feature Implementation Roadmap</title>
+</head>
+<body style="font-family: Arial, Helvetica, sans-serif; max-width: 900px; margin: 40px auto; line-height: 1.6; color: #1a1a1a;">
+  <h1 style="font-size: 28px; border-bottom: 3px solid #1a73e8; padding-bottom: 8px;">PPTChat — Feature Implementation Roadmap</h1>
+
+  <h2 style="font-size: 20px; color: #1a73e8; margin-top: 30px;">Current Project State</h2>
+  <p>A ChatGPT clone (Next.js 15 + Neon PostgreSQL + Gemini) with auth, chat UI, file upload.</p>
+  <p><strong>Critical gaps</strong>: <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px;">/api/chat</code> is empty (no AI responses), file attachments aren't persisted, mic button does nothing, no RAG/voice/MCP.</p>
+
+  <h2 style="font-size: 20px; color: #1a73e8; margin-top: 30px;">Feature Overview</h2>
+  <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 10px 14px; text-align: left; border: 1px solid #ddd;">Feature</th>
+      <th style="padding: 10px 14px; text-align: left; border: 1px solid #ddd;">Approach</th>
+      <th style="padding: 10px 14px; text-align: left; border: 1px solid #ddd;">Cost</th>
+    </tr>
+    <tr style="background: #f8f9fa;">
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>RAG (PDF Q&amp;A)</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">pgvector on Neon + Gemini embeddings via AI SDK</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">~$0</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>Voice STT</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Groq Whisper API (free tier: 2,000 min/day)</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Free</td>
+    </tr>
+    <tr style="background: #f8f9fa;">
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>Voice TTS</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Google Cloud TTS (free $0-300/mo) or browser SpeechSynthesis</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Free–$0</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>MCP (GitHub + Slack)</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><code>@modelcontextprotocol/sdk</code> — HTTP for prod, stdio for dev</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Free</td>
+    </tr>
+    <tr style="background: #f8f9fa;">
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>Custom Model Training</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Fine-tune Llama 3.2 3B via Unsloth → deploy on HF Spaces / Ollama / Colab</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">~$5-10 train (GPU rent), free deploy</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;"><strong>Online AI Interview</strong></td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Voice STT + RAG + Gemini streaming</td>
+      <td style="padding: 10px 14px; border: 1px solid #ddd;">Same stack</td>
+    </tr>
+  </table>
+
+  <p style="background: #e8f0fe; padding: 14px; border-radius: 6px; border-left: 4px solid #1a73e8;"><strong>Goal</strong>: This entire project is for <strong>experimental / learning purposes</strong>. The point is to learn how these technologies work hands-on — not to build something production-ready. Every phase is chosen to teach you something real about ML engineering, full-stack AI, and modern protocols.</p>
+
+  <h2 style="font-size: 20px; color: #1a73e8; margin-top: 30px;">Recommended Approach</h2>
+  <p><strong>Stay on AI SDK v5</strong> for the chat/streaming (it already works), add features with standalone SDKs alongside. This avoids migration risk and ships faster. Upgrade to v7 later if needed.</p>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 1 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 1: Core Chat AI (fill the gap)</h2>
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/chat/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>REWRITE</strong> — streaming AI chat endpoint using <code>streamText</code> + Gemini</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/utils/useChat.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — call <code>/api/chat</code> after saving user message, handle streaming response</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/chat/[chatId]/ChatClient.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — accept and render streaming text chunks</td></tr>
+  </table>
+  <h3 style="font-size: 16px; margin-top: 16px;">Flow</h3>
+  <pre style="background: #f1f3f4; padding: 14px; border-radius: 6px; font-size: 13px; line-height: 1.5;">User sends message → TextInputArea → save msg to DB → POST /api/chat
+  → streamText(Gemini, full conversation history)
+  → save assistant response to DB
+  → return streaming response to client</pre>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 2 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 2: RAG (PDF Q&amp;A)</h2>
+  <h3 style="font-size: 16px; margin-top: 16px;">Install</h3>
+  <ul>
+    <li><code>pgvector</code> extension on Neon — run <code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px;">CREATE EXTENSION vector;</code> in Neon SQL editor</li>
+  </ul>
+  <h3 style="font-size: 16px; margin-top: 16px;">New DB tables (Drizzle schema)</h3>
+  <p><code style="background: #f1f3f4; padding: 2px 6px; border-radius: 3px;">db/schema/rag.ts</code> — <strong>documents</strong> table (userId, fileName, status) + <strong>document_chunks</strong> table (content, embedding vector(768), documentId FK). HNSW index on embedding column.</p>
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>db/schema/rag.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — documents + document_chunks with pgvector</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/embed.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — embed text via Google Gemini embedding API</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/processDocument.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — chunk text, embed chunks, store to DB</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/search.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — pgvector similarity search (cosine distance)</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/upload/files/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — after parsing PDF, call <code>processDocument()</code> to embed + store</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/chat/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — embed user query, search relevant chunks, inject as context</td></tr>
+  </table>
+  <h3 style="font-size: 16px; margin-top: 16px;">Data flow</h3>
+  <pre style="background: #f1f3f4; padding: 14px; border-radius: 6px; font-size: 13px; line-height: 1.5;">Upload PDF → /api/upload/files → extract text
+  → processDocument(): chunk → embedMany → store in pgvector
+  → return success
+
+Ask question → /api/chat → embed query → pgvector search
+  → top 5 chunks → inject into system prompt → Gemini answers</pre>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 3 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 3: Voice (STT + TTS)</h2>
+  <h3 style="font-size: 16px; margin-top: 16px;">Recommendation</h3>
+  <p><strong>STT</strong>: Groq Whisper API — <code>whisper-large-v3</code>, free tier gives ~2,000 min/day, very fast (LPU hardware). More accurate than browser SpeechRecognition.</p>
+  <p><strong>TTS</strong>: Start with browser <code>SpeechSynthesis</code> (free, no API key). If quality isn't good enough, add Google Cloud TTS.</p>
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/voice/transcribe/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — accept audio blob, POST to Groq Whisper, return text</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/voice/speak/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — accept text, return audio (Google TTS or browser fallback)</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/components/MicButton.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — record mic audio via <code>MediaRecorder</code>, send to transcribe, fill input</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/components/TextInputArea.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — integrate MicButton, wire mic icon</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/chat/[chatId]/ChatClient.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — add speaker icon on assistant messages (TTS playback)</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>.env</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — add <code>GROQ_API_KEY</code></td></tr>
+  </table>
+  <h3 style="font-size: 16px; margin-top: 16px;">Mic flow</h3>
+  <pre style="background: #f1f3f4; padding: 14px; border-radius: 6px; font-size: 13px; line-height: 1.5;">Click mic → getUserMedia → MediaRecorder(stream)
+  → stop recording → send blob to /api/voice/transcribe
+  → get text back → fill TextInputArea input field</pre>
+  <h3 style="font-size: 16px; margin-top: 16px;">TTS flow</h3>
+  <pre style="background: #f1f3f4; padding: 14px; border-radius: 6px; font-size: 13px; line-height: 1.5;">Click speaker icon on assistant message
+  → POST /api/voice/speak { text }
+  → receive audio → play via Audio() element</pre>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 4 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 4: MCP (GitHub + Slack)</h2>
+  <h3 style="font-size: 16px; margin-top: 16px;">Install</h3>
+  <ul>
+    <li><code>@modelcontextprotocol/sdk</code> — official MCP TypeScript SDK</li>
+  </ul>
+  <h3 style="font-size: 16px; margin-top: 16px;">Architecture</h3>
+  <p>MCP servers run as <strong>separate Node.js processes</strong> (stdio transport for dev, HTTP for prod). The Next.js app spawns/connects to MCP servers and exposes their tools to the AI model.</p>
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>mcp/servers/github.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — GitHub server with tools (list_issues, create_issue, search_repos, get_pr, list_commits)</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>mcp/servers/slack.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — Slack server with tools (send_message, list_channels, search_messages)</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/mcp/client.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — MCP client manager (connect, list tools, call tool)</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/chat/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — detect "github"/"slack" intent, invoke MCP tools, inject results into AI context</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>package.json</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — add scripts <code>mcp:github</code>, <code>mcp:slack</code></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>.env</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — add <code>GITHUB_TOKEN</code>, <code>SLACK_BOT_TOKEN</code>, <code>SLACK_TEAM_ID</code></td></tr>
+  </table>
+  <h3 style="font-size: 16px; margin-top: 16px;">Flow</h3>
+  <pre style="background: #f1f3f4; padding: 14px; border-radius: 6px; font-size: 13px; line-height: 1.5;">User: "Show my open GitHub issues"
+  → /api/chat → detect "GitHub" intent
+  → call MCP GitHub server: list_issues({ owner, repo })
+  → inject results into Gemini prompt
+  → Gemini summarizes: "You have 3 open issues..."</pre>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 5 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 5: Online AI Interview</h2>
+  <p>Builds on Phases 1–3. No new infrastructure needed.</p>
+  <h3 style="font-size: 16px; margin-top: 16px;">How it works</h3>
+  <ol>
+    <li>User clicks "Start Interview" — mic activates (STT from Phase 3)</li>
+    <li>Transcript is piped into <code>/api/chat</code> as user messages (RAG from Phase 2 for job description docs)</li>
+    <li>AI responds via streaming text + TTS (Phase 3)</li>
+    <li>Full conversation saved to messages table</li>
+  </ol>
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/interview/page.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — interview page with real-time STT → chat → TTS loop</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/interview/InterviewSession.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — manages recording loop, streaming display, TTS playback</td></tr>
+  </table>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Phase 6 -->
+  <h2 style="font-size: 22px; color: #1a73e8;">Phase 6: Custom Model Training &amp; Deployment</h2>
+
+  <p>This is the most educational phase. You'll go through the full ML engineering pipeline — dataset preparation, fine-tuning, evaluation, conversion, and serving. You'll learn LoRA adapters, quantization, GGUF format, and model serving — real skills that apply to production ML work.</p>
+
+  <h3 style="font-size: 16px; margin-top: 16px;">What you'll learn</h3>
+  <ul>
+    <li>How LLMs actually work under the hood (attention, transformers, tokenization)</li>
+    <li>LoRA / QLoRA — parameter-efficient fine-tuning (the industry standard)</li>
+    <li>Dataset formatting for chat models (ShareGPT format, tokenization, chat templates)</li>
+    <li>Quantization — reducing model size with minimal quality loss (4-bit, 8-bit, GGUF)</li>
+    <li>Model serving — REST API, Docker, cloud deployment</li>
+  </ul>
+
+  <h3 style="font-size: 16px; margin-top: 16px;">Step-by-step training pipeline</h3>
+  <ol>
+    <li><strong>Pick a base model</strong> — Llama 3.2 3B (small, fits on one GPU) or Qwen 2.5 7B (better quality, needs ~16GB VRAM). Both are state-of-the-art open-source models.</li>
+    <li><strong>Prepare your dataset</strong> — Convert your PDF content into Q&amp;A pairs or instruction-following examples. Format as JSONL with <code>{"instruction": "...", "output": "..."}</code>. Use your project's domain data (chat history, uploaded PDFs) to create a real dataset.</li>
+    <li><strong>Rent a GPU</strong> — Use <strong>RunPod</strong> or <strong>Lambda Labs</strong> (~$2-3/hr for RTX 6000 Ada, ~$5-10 total). Unsloth's templates include one-click Jupyter notebooks that connect to these services.</li>
+    <li><strong>Fine-tune with Unsloth</strong> — Unsloth is 2x faster and uses 50% less VRAM than Hugging Face's native trainer. You'll use 4-bit QLoRA, which lets you train a 7B model on just 16GB VRAM. Training takes 1-3 hours.
+      <ul>
+        <li>Learn about: LoRA rank (r), alpha, target modules, learning rate schedules</li>
+        <li>Experiment: try different ranks (8, 16, 32) and see how they affect quality</li>
+      </ul>
+    </li>
+    <li><strong>Evaluate</strong> — Run inference on held-out test data. Compare your fine-tuned model vs the base model vs Gemini. See if your training actually improved anything.</li>
+    <li><strong>Export</strong> — Convert your LoRA adapter to GGUF format (for Ollama) or safetensors (for Hugging Face). This teaches you about model serialization formats.</li>
+  </ol>
+
+  <h3 style="font-size: 16px; margin-top: 16px;">Deployment options (free for learning)</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Option</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">What you learn</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Cost</th>
+    </tr>
+    <tr>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>Hugging Face Spaces</strong></td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Docker, Gradio UI, model hosting, inference APIs. You build a web chat UI for your model.</td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Free (CPU)</td>
+    </tr>
+    <tr style="background: #f8f9fa;">
+      <td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>Ollama (localhost)</strong></td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">GGUF quantization, local model serving, REST API. Run your model on your own machine.</td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Free</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>Google Colab + ngrok</strong></td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Cloud GPU notebooks, tunneling, temp API endpoints. Run your model on a free T4 GPU for ~1 hour.</td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Free</td>
+    </tr>
+    <tr style="background: #f8f9fa;">
+      <td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>Together AI / Replicate</strong></td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">Managed model hosting, auto-scaling, API keys. One-click deploy your LoRA adapter.</td>
+      <td style="padding: 8px 12px; border: 1px solid #ddd;">~$5 free credits</td>
+    </tr>
+  </table>
+
+  <h3 style="font-size: 16px; margin-top: 16px;">When to use API keys vs. your own model</h3>
+  <p><strong>Use API keys (Gemini/Groq) for:</strong> The RAG pipeline, voice STT/TTS, and the main chat AI. These are <strong>plumbing</strong> — not the learning target. Using APIs here lets you focus on building the app.</p>
+  <p><strong>Use your own fine-tuned model for:</strong> The core learning experience. The point is to go through training, export, and deployment once so you understand the full stack. Once it's deployed, you can optionally swap it into your chat route to replace Gemini and see how your own model performs.</p>
+
+  <h3 style="font-size: 16px; margin-top: 16px;">Files to create / modify</h3>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/evaluate/page.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — side-by-side comparison: Gemini vs your fine-tuned model vs base model</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/docs/training-guide.md</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — full step-by-step training notebook guide with Unsloth + RunPod</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/docs/deployment-guide.md</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — deploy to HF Spaces, Ollama, and Colab with comparison</td></tr>
+  </table>
+
+  <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+  <!-- Full file change summary -->
+  <h2 style="font-size: 20px; color: #1a73e8;">Full File Change Summary</h2>
+  <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+    <tr style="background: #1a73e8; color: white;">
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">File</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Phase</th>
+      <th style="padding: 8px 12px; text-align: left; border: 1px solid #ddd;">Action</th>
+    </tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/chat/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">1</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>REWRITE</strong> — streaming AI endpoint</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/utils/useChat.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">1</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — call /api/chat</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/chat/[chatId]/ChatClient.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">1, 3</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — streaming + TTS</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>db/schema/rag.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">2</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/embed.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">2</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/processDocument.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">2</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/rag/search.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">2</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/upload/files/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">2</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/voice/transcribe/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">3</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/api/voice/speak/route.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">3</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/components/MicButton.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">3</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/components/TextInputArea.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">3</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>mcp/servers/github.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">4</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>mcp/servers/slack.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">4</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/lib/mcp/client.ts</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">4</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/interview/page.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">5</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong></td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/evaluate/page.tsx</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">6</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — model comparison dashboard</td></tr>
+    <tr style="background: #f8f9fa;"><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/docs/training-guide.md</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">6</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — Unsloth training notebook guide</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>app/docs/deployment-guide.md</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">6</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>CREATE</strong> — deploy to HF Spaces / Ollama / Colab</td></tr>
+    <tr><td style="padding: 8px 12px; border: 1px solid #ddd;"><code>.env</code></td><td style="padding: 8px 12px; border: 1px solid #ddd;">3, 4</td><td style="padding: 8px 12px; border: 1px solid #ddd;"><strong>MODIFY</strong> — add API keys</td></tr>
+  </table>
+
+  <h2 style="font-size: 20px; color: #1a73e8; margin-top: 30px;">Verification checklist</h2>
+  <ol>
+    <li><strong>Phase 1</strong>: Send a message in chat → AI responds with streaming text</li>
+    <li><strong>Phase 2</strong>: Upload a PDF → ask about its content → AI answers from the document</li>
+    <li><strong>Phase 3</strong>: Click mic → speak → transcription appears → send → AI responds → TTS plays response</li>
+    <li><strong>Phase 4</strong>: "List my GitHub issues" → AI calls GitHub MCP → returns results</li>
+    <li><strong>Phase 5</strong>: Start interview → speak → AI interviews you via voice</li>
+    <li><strong>Phase 6</strong>: Visit /evaluate → see model comparison with cost analysis</li>
+  </ol>
+</body>
+</html>
