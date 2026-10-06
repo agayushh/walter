@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.20",
+    "@ai-sdk/groq": "^2.0.45",
     "@clerk/nextjs": "^6.33.3",
     "@neondatabase/serverless": "^1.1.0",
+    "@types/axios": "^0.14.4",
     "@types/multer": "^2.0.0",
     "ai": "^5.0.68",
+    "axios": "^1.17.0",
     "clsx": "^2.1.1",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.4.2",
