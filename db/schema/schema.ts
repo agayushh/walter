@@ -1,5 +1,6 @@
 import { defineRelations } from "drizzle-orm";
 import {
+  boolean,
   integer,
   pgEnum,
   pgTable,
@@ -11,7 +12,11 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const roles = pgEnum("roles", ["user", "assistant", "system"]);
-export const messageStatus = pgEnum("message_status", ["pending", "success", "error"]);
+export const messageStatus = pgEnum("message_status", [
+  "pending",
+  "success",
+  "error",
+]);
 
 export const fileType = pgEnum("file_type", [
   "pdf",
@@ -82,6 +87,66 @@ export const attachmentsTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [index("attachments_to_messages").on(table.messageId)],
+);
+
+export const memoriesTable = pgTable(
+  "memories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => userTable.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index("memories_to_user").on(table.userId)],
+);
+
+export const documentsTable = pgTable(
+  "documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => userTable.id, { onDelete: "cascade" }),
+    fileName: varchar("file_name").notNull(),
+    content: text("content").notNull(),
+    pinned: boolean("pinned").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index("documents_to_user").on(table.userId)],
+);
+
+export const interviewSessionsTable = pgTable(
+  "interview_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => userTable.id, { onDelete: "cascade" }),
+    role: varchar("role").notNull(),
+    difficulty: varchar("difficulty").notNull(),
+    jobDescription: text("job_description"),
+    status: varchar("status").notNull().default("active"),
+    score: integer("score"),
+    feedback: text("feedback"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index("interviews_to_user").on(table.userId)],
+);
+
+export const interviewTurnsTable = pgTable(
+  "interview_turns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => interviewSessionsTable.id, { onDelete: "cascade" }),
+    role: varchar("role").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [index("interview_turns_to_session").on(table.sessionId)],
 );
 
 export const relations = defineRelations(
