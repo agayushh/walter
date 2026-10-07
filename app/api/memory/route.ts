@@ -1,115 +1,70 @@
-import { NextRequest } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { memoryService } from '@/app/lib/memory';
+import { and, desc, eq } from "drizzle-orm";
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db";
+import { ensureExtras } from "@/db/ensure";
+import { memoriesTable } from "@/db/schema/schema";
+import { requireDbUser } from "@/app/api/lib/requireUser";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  const authResult = await requireDbUser();
+  if ("error" in authResult) return authResult.error;
+  await ensureExtras();
 
-    const memories = await memoryService.getUserMemories(userId);
-    
-    return Response.json({ 
-      success: true,
-      memories,
-      count: memories.length
-    });
-  } catch (error) {
-    console.error('Memory API GET error:', error);
-    return Response.json(
-      { error: 'Failed to fetch memories' },
-      { status: 500 }
-    );
-  }
+  const memories = await db
+    .select({
+      id: memoriesTable.id,
+      content: memoriesTable.content,
+      createdAt: memoriesTable.createdAt,
+    })
+    .from(memoriesTable)
+    .where(eq(memoriesTable.userId, authResult.dbUser.id))
+    .orderBy(desc(memoriesTable.createdAt))
+    .limit(50);
+
+  return NextResponse.json({ memories });
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+export async function POST(request: NextRequest) {
+  const authResult = await requireDbUser();
+  if ("error" in authResult) return authResult.error;
+  await ensureExtras();
 
-    const { message, metadata } = await req.json();
-    
-    if (!message) {
-      return Response.json({ error: 'Message is required' }, { status: 400 });
-    }
-
-    await memoryService.addMemory(userId, message, metadata);
-    
-    return Response.json({ 
-      success: true,
-      message: 'Memory added successfully'
-    });
-  } catch (error) {
-    console.error('Memory API POST error:', error);
-    return Response.json(
-      { error: 'Failed to add memory' },
-      { status: 500 }
+  const body = await request.json().catch(() => ({}));
+  const content = typeof body.content === "string" ? body.content.trim() : "";
+  if (!content || content.length > 280) {
+    return NextResponse.json(
+      { message: "Memory must be 1–280 characters" },
+      { status: 400 },
     );
   }
+
+  const [memory] = await db
+    .insert(memoriesTable)
+    .values({ userId: authResult.dbUser.id, content })
+    .returning({
+      id: memoriesTable.id,
+      content: memoriesTable.content,
+      createdAt: memoriesTable.createdAt,
+    });
+
+  return NextResponse.json({ memory }, { status: 201 });
 }
 
-export async function DELETE(req: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+export async function DELETE(request: NextRequest) {
+  const authResult = await requireDbUser();
+  if ("error" in authResult) return authResult.error;
+  await ensureExtras();
 
-    const { memoryId } = await req.json();
-    
-    if (!memoryId) {
-      return Response.json({ error: 'Memory ID is required' }, { status: 400 });
-    }
-
-    await memoryService.deleteMemory(memoryId);
-    
-    return Response.json({ 
-      success: true,
-      message: 'Memory deleted successfully'
-    });
-  } catch (error) {
-    console.error('Memory API DELETE error:', error);
-    return Response.json(
-      { error: 'Failed to delete memory' },
-      { status: 500 }
-    );
+  const id = request.nextUrl.searchParams.get("id");
+  if (!id) {
+    return NextResponse.json({ message: "id is required" }, { status: 400 });
   }
-}
 
-export async function PUT(req: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  await db
+    .delete(memoriesTable)
+    .where(and(eq(memoriesTable.id, id), eq(memoriesTable.userId, authResult.dbUser.id)));
 
-    const { query } = await req.json();
-    
-    if (!query) {
-      return Response.json({ error: 'Query is required' }, { status: 400 });
-    }
-
-    const memories = await memoryService.searchMemories(userId, query);
-    
-    return Response.json({ 
-      success: true,
-      memories,
-      query
-    });
-  } catch (error) {
-    console.error('Memory API PUT error:', error);
-    return Response.json(
-      { error: 'Failed to search memories' },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({ message: "Deleted" });
 }
