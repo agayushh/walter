@@ -5,11 +5,7 @@ import { db } from "@/db";
 import { chatsTable } from "@/db/schema/schema";
 import { and, eq } from "drizzle-orm";
 
-export async function getAuthorizedChats({
-  params,
-}: {
-  params: { chatId: string };
-}) {
+export async function getAuthorizedChats({params}: {params: Promise<{ chatId: string }>}) {
   const user = await auth();
   if (!user.userId) {
     return NextResponse.json(
@@ -35,9 +31,7 @@ export async function getAuthorizedChats({
   const chats = await db
     .select()
     .from(chatsTable)
-    .where(
-      and(eq(chatsTable.id, params.chatId), eq(chatsTable.userId, dbUser.id)),
-    )
+    .where(and(eq(chatsTable.id, (await params).chatId), eq(chatsTable.userId, dbUser.id)))
     .limit(1);
   if (!chats || chats.length === 0) {
     return NextResponse.json(
@@ -51,3 +45,5 @@ export async function getAuthorizedChats({
   }
   return chats;
 }
+
+
