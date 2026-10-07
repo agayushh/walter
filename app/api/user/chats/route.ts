@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { chatsTable } from "@/db/schema/schema";
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "../../lib/cacheUser";
 
@@ -34,7 +34,8 @@ export async function GET() {
   const allChats = await db
     .select()
     .from(chatsTable)
-    .where(eq(chatsTable.userId, dbUser.id));
+    .where(and(eq(chatsTable.userId, dbUser.id), isNull(chatsTable.deletedAt)))
+    .orderBy(desc(chatsTable.updatedAt));
     return NextResponse.json(
       {
         message: "Chats fetched successfully",
