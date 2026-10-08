@@ -1,223 +1,231 @@
-import { google } from '@ai-sdk/google';
-import { streamText } from 'ai';
-import { memoryService } from '@/app/lib/memory';
-import { auth } from '@clerk/nextjs/server';
-import { 
-  trimMessagesForContext, 
-  createContextSummary, 
-  getContextInfo,
-  type ModelType 
-} from '@/app/lib/contextWindow';
+import { streamText, type CoreMessage } from "ai";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { db } from "@/db";
+import { ensureExtras } from "@/db/ensure";
+import {
+  chatsTable,
+  documentsTable,
+  messagesTable,
+} from "@/db/schema/schema";
+import { getModel } from "@/app/lib/llm/provider";
+import { extractMemories, recallMemories } from "@/app/lib/memory";
+import { relevantExcerpt } from "@/app/lib/documents/excerpt";
+import { requireDbUser } from "@/app/api/lib/requireUser";
 
-export async function POST(req: Request) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function POST(request: Request) {
+  const authResult = await requireDbUser();
+  if ("error" in authResult) return authResult.error;
+  const { dbUser } = authResult;
+
+  let body: {
+    chatId?: string;
+    content?: string;
+    provider?: string;
+    regenerate?: boolean;
+    documentIds?: string[];
+  };
   try {
-    console.log('=== Chat API Request ===');
-    const { messages, userId, model = 'gemini-2.5-flash', images = [], files = [] } = await req.json();
-    console.log('Messages:', messages?.length, 'Model:', model, 'Files:', files?.length);
-    
-    // Get user ID from Clerk auth if not provided
-    let currentUserId = userId;
-    if (!currentUserId) {
-      try {
-        const { userId: clerkUserId } = await auth();
-        currentUserId = clerkUserId;
-      } catch {
-        console.warn('Could not get user ID from Clerk auth');
-      }
+    body = await request.json();
+  } catch {
+    return jsonError(400, "Invalid JSON body");
+  }
+
+  const { chatId, regenerate } = body;
+  const content = typeof body.content === "string" ? body.content.trim() : "";
+  if (!chatId || typeof chatId !== "string") {
+    return jsonError(400, "chatId is required");
+  }
+  if (!regenerate && !content) {
+    return jsonError(400, "content is required");
+  }
+
+  await ensureExtras();
+
+  const [chat] = await db
+    .select()
+    .from(chatsTable)
+    .where(and(eq(chatsTable.id, chatId), eq(chatsTable.userId, dbUser.id)))
+    .limit(1);
+
+  if (!chat) {
+    return jsonError(404, "Chat not found");
+  }
+
+  const history = await db
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.chatId, chatId))
+    .orderBy(asc(messagesTable.createdAt));
+
+  const promptHistory: { role: "user" | "assistant"; content: string }[] = history
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter((message) => message.content?.trim())
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.content,
+    }));
+
+  if (regenerate) {
+    while (promptHistory.length && promptHistory.at(-1)?.role === "assistant") {
+      promptHistory.pop();
     }
+  }
 
-    // Get the latest user message
-    const latestMessage = messages[messages.length - 1];
-    let contextualMemories = '';
-    
-    // If we have a user ID, get contextual memories
-    if (currentUserId && latestMessage?.role === 'user') {
-      contextualMemories = await memoryService.getContextualMemories(
-        currentUserId, 
-        latestMessage.content
-      );
-    }
+  const latestUser =
+    content ||
+    [...promptHistory].reverse().find((message) => message.role === "user")
+      ?.content ||
+    "";
+  if (!latestUser.trim()) {
+    return jsonError(400, "Nothing to respond to");
+  }
 
-    // Enhanced system prompt with memory context
-    let systemPrompt = `You are a helpful AI assistant. Provide thoughtful, accurate responses to user questions.
+  const last = promptHistory.at(-1);
+  if (!(last?.role === "user" && last.content === latestUser)) {
+    promptHistory.push({ role: "user", content: latestUser });
+  }
 
-IMPORTANT FORMATTING RULES:
-- Always use proper markdown formatting in your responses
-- For code snippets, use triple backticks with the language identifier (e.g., \`\`\`python, \`\`\`javascript, \`\`\`typescript, \`\`\`bash, etc.)
-- For inline code, use single backticks
-- Use headers (##, ###) to organize information
-- Use bullet points (-) or numbered lists (1., 2., 3.) for lists
-- Use **bold** for emphasis and *italic* for secondary emphasis
-- For tables, use markdown table syntax
-- For links, use [text](url) format
-- For blockquotes, use > at the start of lines
+  const [memories, excerpt] = await Promise.all([
+    recallMemories(dbUser.id).catch(() => [] as string[]),
+    loadDocumentContext(dbUser.id, body.documentIds, latestUser),
+  ]);
 
-Example code block format:
-\`\`\`language
-code here
-\`\`\`
+  const system = [
+    "You are pptChat, a sharp AI assistant. Be concrete, use markdown when it helps, and do not invent citations.",
+    memories.length
+      ? `What you remember about this user:\n${memories.map((fact) => `- ${fact}`).join("\n")}`
+      : "",
+    excerpt
+      ? `The user attached documents. Prefer these excerpts when they are relevant, and say when the documents do not contain the answer.\n\n${excerpt}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
-${contextualMemories ? `You have access to the following context from previous conversations with this user:${contextualMemories}
+  const messages: CoreMessage[] = [
+    { role: "system", content: system },
+    ...promptHistory.map<CoreMessage>((message) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  ];
 
-Use this context to provide more personalized and relevant responses. Reference previous conversations when appropriate, but don't mention that you're using stored memories unless specifically asked.` : ''}
+  if (!chat.title || chat.title === "New Chat" || chat.title.startsWith("New Chat ")) {
+    const title = latestUser.replace(/\s+/g, " ").slice(0, 60);
+    await db
+      .update(chatsTable)
+      .set({ title, updatedAt: new Date() })
+      .where(eq(chatsTable.id, chatId));
+  } else {
+    await db
+      .update(chatsTable)
+      .set({ updatedAt: new Date() })
+      .where(eq(chatsTable.id, chatId));
+  }
 
-Always be helpful, accurate, and maintain context from the conversation history.`;
+  let assistantRowId: string;
+  try {
+    const [inserted] = await db
+      .insert(messagesTable)
+      .values({
+        chatId,
+        role: "assistant",
+        content: "",
+        messageStatus: "pending",
+      })
+      .returning({ id: messagesTable.id });
+    assistantRowId = inserted.id;
+  } catch (error) {
+    console.error("[chat] failed to insert pending assistant row", error);
+    return jsonError(500, "Failed to initialize assistant reply");
+  }
 
-    // Context window management
-    const modelType = model as ModelType;
-    const contextInfo = getContextInfo(messages, modelType, systemPrompt);
-    
-    let processedMessages = messages;
-    let contextSummary = '';
-    
-  // If we need to trim messages due to context window limits
-  if (contextInfo.needsTrimming || contextInfo.totalTokens > contextInfo.maxTokens) {
-    console.log(`Context window utilization: ${contextInfo.utilization.toFixed(1)}% (${contextInfo.totalTokens}/${contextInfo.maxTokens} tokens)`);
-    
-    // Find messages that will be truncated
-    const trimmedMessages = trimMessagesForContext(messages, modelType, systemPrompt);
-    const truncatedMessages = messages.slice(0, messages.length - trimmedMessages.length);      if (truncatedMessages.length > 0) {
-        contextSummary = createContextSummary(truncatedMessages);
-        // Add context summary to system prompt
-        systemPrompt = `${systemPrompt}
-
-${contextSummary}`;
-      }
-      
-      processedMessages = trimmedMessages;
-      
-      console.log(`Trimmed conversation: ${messages.length} -> ${processedMessages.length} messages`);
-    }
-
-    // Define types for processed images and files
-    interface ProcessedImage {
-      mimeType: string;
-      base64: string;
-      [key: string]: unknown;
-    }
-
-    interface ProcessedFile {
-      name: string;
-      size: number;
-      type: string;
-      content: string;
-      contentLength: number;
-      [key: string]: unknown;
-    }
-
-    // Prepare messages with images and files for vision models
-    const formattedMessages = processedMessages.map((message: { 
-      role: 'user' | 'assistant'; 
-      content: string; 
-      images?: ProcessedImage[];
-      files?: ProcessedFile[];
-    }) => {
-      if (message.role === 'user') {
-        const contentParts: Array<{ type: string; text?: string; image?: string }> = [];
-        
-        // Add the main text content
-        let textContent = message.content;
-        
-        // If there are files, prepend their content to the message
-        if (message.files && message.files.length > 0) {
-          const filesContext = message.files.map((file: ProcessedFile) => 
-            `\n\n--- Document: ${file.name} (${file.type}) ---\n${file.content}\n--- End of ${file.name} ---`
-          ).join('\n');
-          
-          textContent = `${message.content}\n\n[User has attached the following document(s):${filesContext}]`;
-        }
-        
-        contentParts.push({ type: 'text', text: textContent });
-        
-        // Add images if present
-        if (message.images && message.images.length > 0) {
-          contentParts.push(
-            ...message.images.map((image: ProcessedImage) => ({
-              type: 'image',
-              image: `data:${image.mimeType};base64,${image.base64}`,
-            }))
-          );
-        }
-        
-        return { 
-          role: message.role, 
-          content: contentParts.length > 1 ? contentParts : textContent 
-        };
-      }
-      
-      return {
-        role: message.role,
-        content: message.content,
-      };
-    });
-
-    // Add images and files to the latest message if provided
-    if ((images && images.length > 0) || (files && files.length > 0)) {
-      const lastMessageIndex = formattedMessages.length - 1;
-      const lastMessage = formattedMessages[lastMessageIndex];
-      
-      if (lastMessage.role === 'user') {
-        // Ensure content is an array
-        if (!Array.isArray(lastMessage.content)) {
-          lastMessage.content = [{ type: 'text', text: lastMessage.content as string }];
-        }
-        
-        // Add file content to text if present
-        if (files && files.length > 0) {
-          const filesContext = files.map((file: ProcessedFile) => 
-            `\n\n--- Document: ${file.name} (${file.type}) ---\n${file.content}\n--- End of ${file.name} ---`
-          ).join('\n');
-          
-          // Update the text part
-          const textPart = lastMessage.content.find((p: { type: string; text?: string }) => p.type === 'text');
-          if (textPart) {
-            textPart.text += `\n\n[User has attached the following document(s):${filesContext}]`;
-          }
-        }
-        
-        // Add images if present
-        if (images && images.length > 0) {
-          lastMessage.content.push(
-            ...images.map((image: ProcessedImage) => ({
-              type: 'image',
-              image: `data:${image.mimeType};base64,${image.base64}`,
-            }))
-          );
-        }
-      }
-    }
-
-    console.log('Calling Gemini with model:', model);
-    console.log('Formatted messages count:', formattedMessages.length);
-    
-    const result = await streamText({
-      model: google(model),
-      messages: formattedMessages,
-      system: systemPrompt,
-      onFinish: async (result) => {
-        console.log('Response finished, text length:', result.text?.length);
-        // Store the conversation in memory after completion
-        if (currentUserId && latestMessage?.role === 'user') {
-          await memoryService.processConversation(
-            currentUserId,
-            latestMessage.content,
-            result.text
-          );
-        }
+  try {
+    const result = streamText({
+      model: getModel(body.provider),
+      messages,
+      async onFinish({ text }) {
+        await db
+          .update(messagesTable)
+          .set({
+            content: text,
+            messageStatus: "success",
+            updatedAt: new Date(),
+          })
+          .where(eq(messagesTable.id, assistantRowId));
+        void extractMemories(dbUser.id, latestUser, text).catch((error) => {
+          console.error("[memory] extract failed", error);
+        });
+      },
+      async onError({ error }) {
+        console.error("[chat] stream error", error);
+        await db
+          .update(messagesTable)
+          .set({ messageStatus: "error", updatedAt: new Date() })
+          .where(eq(messagesTable.id, assistantRowId))
+          .catch(() => {});
       },
     });
-    
-    console.log('Streaming response created successfully');
 
-    return result.toTextStreamResponse();
+    const response = result.toTextStreamResponse();
+    response.headers.set("x-assistant-message-id", assistantRowId);
+    response.headers.set("x-chat-id", chatId);
+    return response;
   } catch (error) {
-    console.error('Chat API error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Failed to process chat request' }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
+    console.error("[chat] failed to start stream", error);
+    await db
+      .update(messagesTable)
+      .set({ messageStatus: "error", updatedAt: new Date() })
+      .where(eq(messagesTable.id, assistantRowId))
+      .catch(() => {});
+    return jsonError(500, "LLM request failed");
   }
+}
+
+async function loadDocumentContext(
+  userId: string,
+  documentIds: string[] | undefined,
+  query: string,
+) {
+  const ids = (documentIds ?? []).filter(
+    (id) => typeof id === "string" && UUID.test(id),
+  );
+  const pinned = await db
+    .select()
+    .from(documentsTable)
+    .where(and(eq(documentsTable.userId, userId), eq(documentsTable.pinned, true)))
+    .orderBy(desc(documentsTable.createdAt))
+    .limit(4);
+
+  let selected = pinned;
+  if (ids.length) {
+    const explicit = await db
+      .select()
+      .from(documentsTable)
+      .where(
+        and(eq(documentsTable.userId, userId), inArray(documentsTable.id, ids.slice(0, 4))),
+      );
+    const merged = new Map<string, (typeof pinned)[number]>();
+    for (const doc of [...explicit, ...pinned]) merged.set(doc.id, doc);
+    selected = [...merged.values()];
+  }
+
+  if (!selected.length) return "";
+  return relevantExcerpt(
+    selected.map((doc) => ({ fileName: doc.fileName, content: doc.content })),
+    query,
+  );
+}
+
+function jsonError(status: number, message: string) {
+  return new Response(JSON.stringify({ message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
