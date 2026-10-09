@@ -1,237 +1,48 @@
-import { NextRequest, NextResponse } from 'next/server';
-import mammoth from 'mammoth';
-import csv from 'csv-parser';
-import { Readable } from 'stream';
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db";
+import { ensureExtras } from "@/db/ensure";
+import { documentsTable } from "@/db/schema/schema";
+import { extractFileText } from "@/app/lib/documents/extract";
+import { requireDbUser } from "@/app/api/lib/requireUser";
 
-// Dynamic import for pdf-parse to handle CommonJS module
-const parsePdf = async (buffer: Buffer) => {
-  const pdfParseModule = await import('pdf-parse');
-  // @ts-expect-error - pdf-parse has complex module structure
-  const pdfParse = pdfParseModule.default || pdfParseModule;
-  return await pdfParse(buffer);
-};
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Configuration
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
-const SUPPORTED_FILE_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-  'application/msword', // .doc
-  'text/plain',
-  'text/csv',
-  'application/vnd.ms-excel', // .xls
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-  'application/json',
-  'text/markdown',
-  'text/rtf',
-];
+const MAX_BYTES = 8 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
-  try {
-    const formData = await request.formData();
-    const files = formData.getAll('files') as File[];
-    
-    if (!files.length) {
-      return NextResponse.json(
-        { error: 'No files provided' },
-        { status: 400 }
-      );
-    }
+  const authResult = await requireDbUser();
+  if ("error" in authResult) return authResult.error;
+  await ensureExtras();
 
-    const processedFiles = [];
-
-    for (const file of files) {
-      // Validate file type
-      if (!SUPPORTED_FILE_TYPES.includes(file.type)) {
-        return NextResponse.json(
-          { error: `Unsupported file format: ${file.type} for file ${file.name}` },
-          { status: 400 }
-        );
-      }
-
-      // Validate file size
-      if (file.size > MAX_FILE_SIZE) {
-        return NextResponse.json(
-          { error: `File too large: ${file.name} (${Math.round(file.size / 1024 / 1024)}MB). Max size is 25MB.` },
-          { status: 400 }
-        );
-      }
-
-      try {
-        const buffer = Buffer.from(await file.arrayBuffer());
-        let extractedText = '';
-        let metadata: {
-          name: string;
-          size: number;
-          type: string;
-          lastModified: number;
-          error?: string;
-          numPages?: number;
-          pages?: number;
-          pdfInfo?: Record<string, unknown>;
-          info?: Record<string, unknown>;
-          version?: string;
-          hasImages?: boolean;
-        } = {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          lastModified: file.lastModified,
-        };
-
-        // Process based on file type
-        switch (file.type) {
-          case 'application/pdf':
-            try {
-              const pdfData = await parsePdf(buffer);
-              extractedText = pdfData.text.trim();
-              
-              if (!extractedText) {
-                throw new Error('PDF appears to be empty or contains only images');
-              }
-              
-              metadata = {
-                ...metadata,
-                pages: pdfData.numpages,
-                info: pdfData.info,
-                version: pdfData.version,
-              };
-            } catch (pdfError) {
-              console.error('PDF parsing error:', pdfError);
-              const errorMessage = pdfError instanceof Error ? pdfError.message : 'Unknown error';
-              extractedText = `PDF file: ${file.name}
-Size: ${(file.size / 1024 / 1024).toFixed(2)} MB
-
-[Error extracting PDF text: ${errorMessage}. The PDF might contain scanned images or be password protected.]`;
-              metadata = {
-                ...metadata,
-                error: errorMessage,
-              };
-            }
-            break;
-
-          case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-          case 'application/msword':
-            const docxResult = await mammoth.extractRawText({ buffer });
-            extractedText = docxResult.value;
-            metadata = {
-              ...metadata,
-              hasImages: docxResult.messages.some(m => m.type === 'warning' && m.message.includes('image')),
-            };
-            break;
-
-          case 'text/plain':
-          case 'text/markdown':
-          case 'text/rtf':
-          case 'application/json':
-            extractedText = buffer.toString('utf-8');
-            break;
-
-          case 'text/csv':
-          case 'application/vnd.ms-excel':
-          case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
-            // Parse CSV
-            extractedText = await parseCSV(buffer);
-            break;
-
-          default:
-            throw new Error(`Unsupported file type: ${file.type}`);
-        }
-
-        // Clean and validate extracted text
-        extractedText = extractedText.trim();
-        if (!extractedText) {
-          throw new Error(`No readable content found in ${file.name}`);
-        }
-
-        // Limit text length to prevent overwhelming the context
-        const MAX_CONTENT_LENGTH = 50000; // ~50k characters
-        if (extractedText.length > MAX_CONTENT_LENGTH) {
-          extractedText = extractedText.substring(0, MAX_CONTENT_LENGTH) + '\n\n[Content truncated due to length...]';
-        }
-
-        processedFiles.push({
-          ...metadata,
-          content: extractedText,
-          contentLength: extractedText.length,
-          originalSize: file.size,
-        });
-
-      } catch (fileError) {
-        console.error(`Error processing file ${file.name}:`, fileError);
-        const errorMessage = fileError instanceof Error ? fileError.message : 'Unknown error';
-        return NextResponse.json(
-          { error: `Failed to process file: ${file.name}. ${errorMessage}` },
-          { status: 400 }
-        );
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      files: processedFiles,
-      totalFiles: processedFiles.length,
-      totalSize: processedFiles.reduce((sum, file) => sum + file.originalSize, 0),
-      totalContentLength: processedFiles.reduce((sum, file) => sum + file.contentLength, 0),
-    });
-
-  } catch (error) {
-    console.error('File upload error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process files' },
-      { status: 500 }
-    );
+  const form = await request.formData().catch(() => null);
+  const file = form?.get("file");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ message: "file is required" }, { status: 400 });
   }
-}
+  if (file.size > MAX_BYTES) {
+    return NextResponse.json({ message: "File must be under 8 MB" }, { status: 400 });
+  }
 
-// Helper function to parse CSV content
-async function parseCSV(buffer: Buffer): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const results: Record<string, string>[] = [];
-    const readable = Readable.from(buffer);
-    
-    readable
-      .pipe(csv())
-      .on('data', (row: Record<string, string>) => results.push(row))
-      .on('end', () => {
-        // Convert CSV data to readable text format
-        if (results.length === 0) {
-          resolve('Empty CSV file');
-          return;
-        }
-
-        const headers = Object.keys(results[0]);
-        let text = `CSV File Content:\n\nHeaders: ${headers.join(', ')}\n\n`;
-        
-        // Add sample rows (limit to first 50 rows to prevent overwhelming)
-        const sampleRows = results.slice(0, 50);
-        sampleRows.forEach((row, index) => {
-          text += `Row ${index + 1}:\n`;
-          headers.forEach(header => {
-            text += `  ${header}: ${row[header] || 'N/A'}\n`;
-          });
-          text += '\n';
-        });
-
-        if (results.length > 50) {
-          text += `... and ${results.length - 50} more rows\n`;
-        }
-
-        text += `\nTotal rows: ${results.length}`;
-        resolve(text);
-      })
-      .on('error', reject);
-  });
-}
-
-// Helper function for Excel files (basic implementation)
-async function parseExcel(buffer: Buffer): Promise<string> {
-  // For now, treat as binary and extract what we can
-  // In a production app, you'd want to use a proper Excel parser like xlsx
   try {
-    const text = buffer.toString('utf-8');
-    return `Excel file content (basic extraction):\n\n${text.replace(/[^\x20-\x7E\n]/g, '')}`;
+    const extracted = await extractFileText(file);
+    const [document] = await db
+      .insert(documentsTable)
+      .values({
+        userId: authResult.dbUser.id,
+        fileName: extracted.fileName,
+        content: extracted.content,
+        pinned: true,
+      })
+      .returning({
+        id: documentsTable.id,
+        fileName: documentsTable.fileName,
+        pinned: documentsTable.pinned,
+      });
+
+    return NextResponse.json({ document }, { status: 201 });
   } catch (error) {
-    throw new Error('Could not parse Excel file');
+    const message = error instanceof Error ? error.message : "Could not read that file";
+    return NextResponse.json({ message }, { status: 400 });
   }
 }
