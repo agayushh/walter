@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider } from '@clerk/nextjs'
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +13,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const display = Instrument_Serif({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: "400",
+  style: ["normal", "italic"],
+});
+
 export const metadata: Metadata = {
-  title: "PPTChat - AI Assistant",
-  description: "Chat with AI powered by Next.js",
+  title: "pptChat",
+  description: "AI chat with memory, documents, interviews, and a debate arena.",
 };
 
 export default function RootLayout({
@@ -27,7 +34,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body
-          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          className={`${geistSans.variable} ${geistMono.variable} ${display.variable} antialiased`}
         >
           {children}
         </body>
