@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { userTable } from "@/db/schema/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import type { WebhookEvent } from "@clerk/nextjs/server";
 import { Webhook } from "svix";
 
 export async function POST(req: Request) {
@@ -23,13 +24,13 @@ export async function POST(req: Request) {
   const payload = await req.text();
 
   const wh = new Webhook(WEBHOOK_SECRET);
-  let event: any;
+  let event: WebhookEvent;
   try {
     event = wh.verify(payload, {
       "svix-id": svixId,
       "svix-timestamp": svixTimestamp,
       "svix-signature": svixSignature,
-    });
+    }) as WebhookEvent;
 
     if (event.type === "user.created") {
       const { id, email_addresses, first_name, last_name, image_url } =
