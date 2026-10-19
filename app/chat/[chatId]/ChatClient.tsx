@@ -27,19 +27,16 @@ export default function ChatClient({ initialMessages, chatId }: ChatClientProps)
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col">
-      <TopBar
-        title={<ModelSwitcher />}
-        children={
-          <button
-            type="button"
-            onClick={stream.exportMarkdown}
-            className="grid h-8 w-8 place-items-center rounded-full text-white/50 hover:bg-white/8 hover:text-[var(--cream)]"
-            aria-label="Export chat"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-        }
-      />
+      <TopBar title={<ModelSwitcher />}>
+        <button
+          type="button"
+          onClick={stream.exportMarkdown}
+          className="grid h-8 w-8 place-items-center rounded-full text-white/50 hover:bg-white/8 hover:text-[var(--cream)]"
+          aria-label="Export chat"
+        >
+          <Download className="h-4 w-4" />
+        </button>
+      </TopBar>
 
       <div className="mx-auto w-full max-w-3xl flex-1 space-y-7 overflow-y-auto px-4 py-6 pb-40">
         {stream.messages.length === 0 ? (
