@@ -6,6 +6,7 @@ import { ChevronDown } from "lucide-react";
 const OPTIONS = [
   { id: "groq", label: "Groq", hint: "Fast" },
   { id: "gemini", label: "Gemini", hint: "Google" },
+  { id: "ollama", label: "Local", hint: "Ollama" },
 ] as const;
 
 export default function ModelSwitcher() {
@@ -14,7 +15,8 @@ export default function ModelSwitcher() {
 
   useEffect(() => {
     const saved = localStorage.getItem("walter-provider");
-    if (saved === "gemini" || saved === "groq") setProvider(saved);
+    const match = OPTIONS.find((option) => option.id === saved);
+    if (match) setProvider(match.id);
   }, []);
 
   const choose = (id: (typeof OPTIONS)[number]["id"]) => {

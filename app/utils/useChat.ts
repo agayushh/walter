@@ -72,7 +72,7 @@ export type SendMessageOptions = {
 function currentProvider() {
   if (typeof window === "undefined") return undefined;
   const value = localStorage.getItem("walter-provider");
-  return value === "gemini" || value === "groq" ? value : undefined;
+  return value === "gemini" || value === "groq" || value === "ollama" ? value : undefined;
 }
 
 export const sendMessage = async (
