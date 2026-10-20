@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.20",
     "@ai-sdk/groq": "^2.0.45",
+    "@ai-sdk/openai-compatible": "1.0.58",
     "@clerk/nextjs": "^6.33.3",
     "@neondatabase/serverless": "^1.1.0",
     "@types/axios": "^0.14.4",
