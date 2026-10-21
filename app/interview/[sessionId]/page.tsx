@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
-import { Mic } from "lucide-react";
+import { Loader2, Mic } from "lucide-react";
 import AppShell from "@/app/components/AppShell";
 import TopBar from "@/app/components/TopBar";
+import { useDictation } from "@/app/components/useDictation";
 
 interface Turn {
   id: string;
@@ -22,8 +23,10 @@ export default function InterviewRoomPage() {
   const [score, setScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
-  const [listening, setListening] = useState(false);
   const spokenId = useRef<string | null>(null);
+  const dictation = useDictation((transcript) =>
+    setAnswer((prev) => (prev ? `${prev} ${transcript}` : transcript)),
+  );
 
   useEffect(() => {
     void fetch(`/api/interview?id=${sessionId}`)
@@ -42,25 +45,6 @@ export default function InterviewRoomPage() {
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(last.content));
   }, [turns, feedback]);
-
-  const dictate = () => {
-    const Ctor =
-      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRec }).webkitSpeechRecognition ||
-      (window as unknown as { SpeechRecognition?: new () => SpeechRec }).SpeechRecognition;
-    if (!Ctor) {
-      setError("Voice input works in Chrome and Edge.");
-      return;
-    }
-    const recognition = new Ctor();
-    recognition.lang = "en-US";
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      setAnswer((prev) => (prev ? `${prev} ${transcript}` : transcript));
-    };
-    recognition.onend = () => setListening(false);
-    setListening(true);
-    recognition.start();
-  };
 
   const submit = async (action: "answer" | "finish") => {
     setBusy(true);
@@ -142,17 +126,24 @@ export default function InterviewRoomPage() {
                 rows={4}
                 className="w-full rounded-[22px] border border-white/10 bg-black/20 p-4 text-sm outline-none placeholder:text-white/30"
               />
-              {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
+              {(error || dictation.error) && (
+                <p className="mt-2 text-sm text-red-300">{error || dictation.error}</p>
+              )}
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
-                  onClick={dictate}
+                  onClick={dictation.toggle}
+                  disabled={dictation.transcribing}
                   className={`rounded-full border px-4 py-2 text-sm ${
-                    listening ? "border-red-400 text-red-300" : "border-white/15"
+                    dictation.listening ? "border-red-400 text-red-300" : "border-white/15"
                   }`}
                 >
-                  <Mic className="mr-1 inline h-4 w-4" />
-                  Speak
+                  {dictation.transcribing ? (
+                    <Loader2 className="mr-1 inline h-4 w-4 animate-spin" />
+                  ) : (
+                    <Mic className="mr-1 inline h-4 w-4" />
+                  )}
+                  {dictation.listening ? "Stop" : "Speak"}
                 </button>
                 <button
                   type="button"
@@ -177,11 +168,4 @@ export default function InterviewRoomPage() {
       </div>
     </AppShell>
   );
-}
-
-interface SpeechRec {
-  lang: string;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
 }
