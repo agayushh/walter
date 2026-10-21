@@ -1,4 +1,3 @@
-import { generateText } from "ai";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
@@ -7,11 +6,12 @@ import {
   interviewSessionsTable,
   interviewTurnsTable,
 } from "@/db/schema/schema";
-import { getModel } from "@/app/lib/llm/provider";
 import {
-  INTERVIEW_LEVELS,
-  INTERVIEW_ROLES,
-} from "@/app/lib/interviewRoles";
+  askQuestion,
+  isInterviewLevel,
+  isInterviewRole,
+  scoreInterview,
+} from "@/app/lib/interview";
 import { requireDbUser } from "@/app/api/lib/requireUser";
 
 export const runtime = "nodejs";
@@ -91,16 +91,10 @@ async function startInterview(
   userId: string,
   body: { role?: string; difficulty?: string; jobDescription?: string },
 ) {
-  if (
-    !body.role ||
-    !INTERVIEW_ROLES.includes(body.role as (typeof INTERVIEW_ROLES)[number])
-  ) {
+  if (!isInterviewRole(body.role)) {
     return NextResponse.json({ message: "Pick a role" }, { status: 400 });
   }
-  if (
-    !body.difficulty ||
-    !INTERVIEW_LEVELS.includes(body.difficulty as (typeof INTERVIEW_LEVELS)[number])
-  ) {
+  if (!isInterviewLevel(body.difficulty)) {
     return NextResponse.json({ message: "Pick a difficulty" }, { status: 400 });
   }
 
@@ -225,33 +219,6 @@ async function loadTurns(sessionId: string) {
     .orderBy(asc(interviewTurnsTable.createdAt));
 }
 
-async function askQuestion(
-  session: {
-    role: string;
-    difficulty: string;
-    jobDescription: string | null;
-  },
-  turns: { role: string; content: string }[],
-) {
-  const transcript = turns
-    .map((turn) => `${turn.role.toUpperCase()}: ${turn.content}`)
-    .join("\n");
-
-  const { text } = await generateText({
-    model: getModel(),
-    prompt:
-      `You are interviewing a candidate for a ${session.difficulty} ${session.role} role. ` +
-      "Ask exactly one question. No greeting, no numbering, no answer hints. " +
-      "Build on their last answer when there is one. Keep it under 60 words.\n\n" +
-      (session.jobDescription
-        ? `JOB DESCRIPTION:\n${session.jobDescription}\n\n`
-        : "") +
-      (transcript ? `TRANSCRIPT SO FAR:\n${transcript}` : "This is the opening question."),
-  });
-
-  return text.trim();
-}
-
 async function scoreSession(sessionId: string) {
   const [session] = await db
     .select()
@@ -259,26 +226,12 @@ async function scoreSession(sessionId: string) {
     .where(eq(interviewSessionsTable.id, sessionId))
     .limit(1);
   const turns = await loadTurns(sessionId);
-  const transcript = turns
-    .map((turn) => `${turn.role.toUpperCase()}: ${turn.content}`)
-    .join("\n");
-
-  const { text } = await generateText({
-    model: getModel(),
-    prompt:
-      "Score this mock interview. First line must be exactly `OVERALL: N` where N is 0-100. " +
-      "Then markdown sections: Technical depth, Communication, What to practice. " +
-      "Be specific and fair. Do not invent answers they did not give.\n\n" +
-      `ROLE: ${session.difficulty} ${session.role}\n\n${transcript}`,
-  });
-
-  const match = text.match(/OVERALL:\s*(\d{1,3})/);
-  const score = match ? Math.max(0, Math.min(100, Number(match[1]))) : null;
+  const { score, feedback } = await scoreInterview(session, turns);
 
   await db
     .update(interviewSessionsTable)
-    .set({ status: "done", score, feedback: text })
+    .set({ status: "done", score, feedback })
     .where(eq(interviewSessionsTable.id, sessionId));
 
-  return { score, feedback: text };
+  return { score, feedback };
 }
