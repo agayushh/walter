@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Plus, SendHorizonal, Square, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { sendMessage } from "../utils/useChat";
+import { useDictation } from "./useDictation";
 
 interface ChatMessage {
   id: string;
@@ -28,16 +29,6 @@ interface TextInputAreaProps {
 
 const MAX_HEIGHT = 200;
 
-type SpeechRecognitionCtor = new () => {
-  lang: string;
-  interimResults: boolean;
-  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
 export default function TextInputArea({
   chatId,
   onMessageSent,
@@ -49,7 +40,6 @@ export default function TextInputArea({
   const [inputValue, setInputValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [docs, setDocs] = useState<PinnedDoc[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -57,6 +47,9 @@ export default function TextInputArea({
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const router = useRouter();
+  const dictation = useDictation((transcript) =>
+    setInputValue((prev) => (prev ? `${prev} ${transcript}` : transcript)),
+  );
 
   const loadDocs = async () => {
     const response = await fetch("/api/documents");
@@ -128,34 +121,6 @@ export default function TextInputArea({
     } finally {
       setUploading(false);
     }
-  };
-
-  const toggleMic = () => {
-    const Ctor = (
-      window as Window & {
-        SpeechRecognition?: SpeechRecognitionCtor;
-        webkitSpeechRecognition?: SpeechRecognitionCtor;
-      }
-    ).SpeechRecognition ||
-      (window as Window & { webkitSpeechRecognition?: SpeechRecognitionCtor })
-        .webkitSpeechRecognition;
-
-    if (!Ctor) {
-      setUploadError("Voice input works in Chrome and Edge.");
-      return;
-    }
-
-    const recognition = new Ctor();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      setInputValue((prev) => (prev ? `${prev} ${transcript}` : transcript));
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    setIsListening(true);
-    recognition.start();
   };
 
   const handleSend = async () => {
@@ -258,15 +223,16 @@ export default function TextInputArea({
             </button>
             <button
               type="button"
-              aria-label="Voice input"
-              onClick={toggleMic}
+              aria-label={dictation.listening ? "Stop voice input" : "Voice input"}
+              onClick={dictation.toggle}
+              disabled={dictation.transcribing}
               className={`grid h-9 w-9 place-items-center rounded-full ${
-                isListening
+                dictation.listening
                   ? "bg-red-500/15 text-red-300"
                   : "text-white/55 hover:bg-white/8 hover:text-[var(--cream)]"
               }`}
             >
-              <Mic className="h-4 w-4" />
+              {dictation.transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
             </button>
           </div>
           {isSending ? (
@@ -295,7 +261,9 @@ export default function TextInputArea({
           )}
         </div>
       </div>
-      {uploadError && <p className="mt-2 text-center text-xs text-red-300">{uploadError}</p>}
+      {(uploadError || dictation.error) && (
+        <p className="mt-2 text-center text-xs text-red-300">{uploadError || dictation.error}</p>
+      )}
     </div>
   );
 }
