@@ -33,7 +33,7 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
 
 export function tooManyRequests(retryAfter: number) {
   return Response.json(
-    { message: "Too many requests. Try again in a few minutes." },
+    { message: "Too many requests. Try again later." },
     { status: 429, headers: { "Retry-After": String(retryAfter) } },
   );
 }
