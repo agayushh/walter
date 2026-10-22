@@ -72,10 +72,10 @@ export default async function Page() {
                 Start chatting
               </Link>
               <Link
-                href="/sign-in"
+                href="/interview/demo"
                 className="rounded-full border border-white/12 px-5 py-3 text-sm text-[var(--cream)]"
               >
-                I have an account
+                Try a demo interview
               </Link>
             </div>
           </div>
