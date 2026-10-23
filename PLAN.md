@@ -1,6 +1,22 @@
 # Walter Project — Proof Plan
 
-## Current State (verified)
+## Status — 2026-10-23
+
+| # | Phase | Status | What shipped |
+|---|-------|--------|--------------|
+| 0 | Streaming chat + provider switch | Done | `/api/chat` streams via `getModel()`; Groq/Gemini/Ollama switch |
+| 1 | Memory | Done | Facts extracted per turn into a `memories` table and injected into the system prompt; editable in `/library`. Postgres instead of mem0, so no extra service. |
+| 2 | Chat with documents | Done | PDF/DOCX/text upload, pinned docs, keyword-ranked excerpts in the prompt, quiz from a doc. Keyword ranking instead of pgvector, so it works with every provider including local. |
+| 3 | Voice | Done | Web Speech API in Chrome/Edge, MediaRecorder + Groq Whisper (`/api/voice/transcribe`) elsewhere; read-aloud on replies and interview questions |
+| 4 | Local LLM routing | Done | `LLM_PROVIDER=ollama` (or `local`) through Ollama's OpenAI-compatible API; "Local" in the model switcher |
+| 5 | Interview | Done | Role/level/job description, five questions, scored feedback, history; public `/interview/demo` (3 questions, no account, rate-limited) |
+| 6 | Polish | Landing done | Landing page with demo link. Stripe/pricing tiers not built; they were optional and need product decisions. |
+
+Extra: a debate arena (`/arena`) with a judge.
+
+The sections below are the original plan and its starting state, kept for reference.
+
+## Starting State (verified at planning time)
 
 **What works:**
 - Next.js 15 + Clerk auth + Neon PostgreSQL (Drizzle ORM)
