@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await transcribe({
-      model: groq.transcription(process.env.GROQ_TRANSCRIBE_MODEL ?? "whisper-large-v3-turbo"),
+      model: groq.transcription(process.env.GROQ_TRANSCRIBE_MODEL || "whisper-large-v3-turbo"),
       audio: new Uint8Array(await audio.arrayBuffer()),
     });
     return Response.json({ text: result.text.trim() });

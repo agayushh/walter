@@ -29,24 +29,24 @@ export function resolveProvider(override?: string | null): Provider {
 
 const ollama = createOpenAICompatible({
   name: "ollama",
-  baseURL: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1",
+  baseURL: process.env.OLLAMA_BASE_URL || "http://localhost:11434/v1",
 });
 
 export function getModel(override?: string | null) {
   const provider = resolveProvider(override);
 
   if (provider === "ollama") {
-    return ollama(process.env.OLLAMA_MODEL ?? "llama3.2");
+    return ollama(process.env.OLLAMA_MODEL || "llama3.2");
   }
 
   if (provider === "gemini") {
     if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GEMINI_API_KEY;
     }
-    return google(process.env.GEMINI_MODEL ?? "gemini-2.5-flash");
+    return google(process.env.GEMINI_MODEL || "gemini-2.5-flash");
   }
 
-  return groq(process.env.GROQ_MODEL ?? "llama-3.3-70b-versatile");
+  return groq(process.env.GROQ_MODEL || "openai/gpt-oss-120b");
 }
 
 export const ACTIVE_PROVIDER = resolveProvider();
